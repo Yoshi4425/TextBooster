@@ -1,22 +1,24 @@
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * ClipButton: インデックス番号を左上に固定描画し、
- * タイトルを最大2行（超える場合は"..."）で表示するカスタムボタン
- */
 public class ClipButton extends JButton {
     private int index;
     private String originalTitle = "";
 
     public ClipButton(int index) {
         this.index = index;
-        // 基本設定
         setFocusable(true);
         setHorizontalAlignment(SwingConstants.CENTER);
         setVerticalAlignment(SwingConstants.CENTER);
-        // 数字と重ならないように、上側に余白（15px）を確保
         setMargin(new Insets(15, 5, 5, 5));
+        
+        // ドラッグ操作を許可するための設定
+        setTransferHandler(new TransferHandler("text")); 
+    }
+
+    // indexを外部から取得できるようにゲッターを追加
+    public int getIndex() {
+        return index;
     }
 
     public void setClipTitle(String title) {

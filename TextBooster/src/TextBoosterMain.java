@@ -3,7 +3,8 @@ import java.awt.*;
 import java.awt.event.*;
 
 /**
- * TextBoosterMain: アプリケーションのメインウィンドウおよび制御クラス
+ * TextBoosterMain: アプリケーションのメインクラス
+ * ドラッグ＆ドロップによる位置入れ替え機能を搭載
  */
 public class TextBoosterMain extends JFrame {
     private static final int TOTAL = 30;
@@ -14,25 +15,25 @@ public class TextBoosterMain extends JFrame {
     private ClipButton[] buttons;
     private StringBuilder inputBuffer = new StringBuilder();
     
-    // HUD（数字入力オーバーレイ）用コンポーネント
+    // ドラッグ＆ドロップ管理用
+    private ClipButton dragSourceButton = null;
+
+    // HUD（数字入力オーバーレイ）
     private JWindow hudWindow;
     private JLabel hudLabel;
     private Timer hudTimer;
 
-    // 外部マネジャークラス
+    // 外部マネジャー
     private StorageManager storage = new StorageManager();
     private PasteExecutor executor = new PasteExecutor();
 
     public TextBoosterMain() {
-        initData();       // データの読み込み
-        initUI();         // メインGUIの構築
-        initHUD();        // 入力確認用HUDの構築
-        initKeyHandler(); // グローバルキーイベントの監視
+        initData();
+        initUI();
+        initHUD();
+        initKeyHandler();
     }
 
-    /**
-     * 保存ファイルからデータを読み込み、なければ初期化する
-     */
     private void initData() {
         clipItems = storage.load();
         if (clipItems == null) {
@@ -43,9 +44,6 @@ public class TextBoosterMain extends JFrame {
         }
     }
 
-    /**
-     * メインウィンドウの構築
-     */
     private void initUI() {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
@@ -58,16 +56,12 @@ public class TextBoosterMain extends JFrame {
         setAlwaysOnTop(true);
         setResizable(false);
 
-        // --- ウィンドウ配置：右側1/4 かつ タスクバーを避ける ---
+        // タスクバーを避けて右側1/4に配置
         Rectangle winBounds = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
         int screenWidth = Toolkit.getDefaultToolkit().getScreenSize().width;
         int width = screenWidth / 4;
-        int height = winBounds.height;
-        int x = screenWidth - width;
-        int y = winBounds.y;
-        setBounds(x, y, width, height);
+        setBounds(screenWidth - width, winBounds.y, width, winBounds.height);
 
-        // ボタン配置パネル
         JPanel panel = new JPanel(new GridLayout(ROWS, COLS, 2, 2));
         buttons = new ClipButton[TOTAL];
 
@@ -76,88 +70,134 @@ public class TextBoosterMain extends JFrame {
             buttons[i] = new ClipButton(i + 1);
             buttons[i].setClipTitle(clipItems[i].getTitle());
             
-            // マウス操作の登録
-            buttons[i].addMouseListener(new MouseAdapter() {
-                @Override
-                public void mousePressed(MouseEvent e) {
-                    if (SwingUtilities.isRightMouseButton(e)) {
-                        editItem(index); // 右クリック：編集
-                    } else if (SwingUtilities.isLeftMouseButton(e)) {
-                        executeAction(index); // 左クリック：実行
-                    }
-                }
-            });
+            // ドラッグ＆ドロップとクリックを制御するリスナーを設定
+            setupInteraction(buttons[i], index);
+            
             panel.add(buttons[i]);
         }
         add(panel);
     }
 
     /**
-     * 数字入力時に浮かび上がるHUD（半透明ウィンドウ）を初期化
+     * ボタンに対するマウス操作（クリック・右クリック・ドラッグ）を統合管理する
      */
+    private void setupInteraction(ClipButton btn, int index) {
+        btn.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    dragSourceButton = (ClipButton) e.getSource();
+                }
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    editItem(index);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (dragSourceButton != null && SwingUtilities.isLeftMouseButton(e)) {
+                    // ドロップ先のコンポーネントを特定
+                    Point p = e.getLocationOnScreen();
+                    SwingUtilities.convertPointFromScreen(p, getContentPane());
+                    Component target = SwingUtilities.getDeepestComponentAt(getContentPane(), p.x, p.y);
+
+                    if (target instanceof ClipButton && target != dragSourceButton) {
+                        // 他のボタン上で離されたら入れ替え
+                        swapItems(dragSourceButton.getIndex() - 1, ((ClipButton) target).getIndex() - 1);
+                    } else if (target == dragSourceButton) {
+                        // ドラッグせずにその場で離されたら実行
+                        executeAction(index);
+                    }
+                }
+                dragSourceButton = null;
+                setCursor(Cursor.getDefaultCursor());
+            }
+        });
+
+        btn.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    // ドラッグ中であることを示すカーソルに変更
+                    setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                }
+            }
+        });
+    }
+
+    /**
+     * データの入れ替えとUIの更新
+     */
+    private void swapItems(int srcIdx, int destIdx) {
+        // データ本体を入れ替え
+        ClipItem temp = clipItems[srcIdx];
+        clipItems[srcIdx] = clipItems[destIdx];
+        clipItems[destIdx] = temp;
+
+        // UI表示（タイトル）を更新
+        buttons[srcIdx].setClipTitle(clipItems[srcIdx].getTitle());
+        buttons[destIdx].setClipTitle(clipItems[destIdx].getTitle());
+
+        // 設定ファイルへ保存
+        storage.save(clipItems);
+
+        // 入れ替え先を目立たせる（フォーカス）
+        buttons[destIdx].requestFocusInWindow();
+    }
+
+    private void executeAction(int index) {
+        buttons[index].requestFocusInWindow();
+        buttons[index].doClick(100);
+        executor.copyAndPaste(clipItems[index].getContent());
+    }
+
+    private void editItem(int index) {
+        EditDialog dialog = new EditDialog(this);
+        if (dialog.show(clipItems[index])) {
+            buttons[index].setClipTitle(clipItems[index].getTitle());
+            storage.save(clipItems);
+        }
+    }
+
+    // --- HUD制御ロジック ---
     private void initHUD() {
         hudWindow = new JWindow(this);
         hudLabel = new JLabel("", SwingConstants.CENTER);
         hudLabel.setFont(new Font("Arial", Font.BOLD, 80));
         hudLabel.setForeground(Color.WHITE);
         hudLabel.setOpaque(true);
-        hudLabel.setBackground(new Color(0, 0, 0, 160)); // 半透明の黒
+        hudLabel.setBackground(new Color(0, 0, 0, 160));
         hudLabel.setBorder(BorderFactory.createLineBorder(Color.WHITE, 2));
-
         hudWindow.add(hudLabel);
         hudWindow.setSize(220, 140);
         updateHUDPosition();
-
-        // 2秒間入力がない場合に自動でバッファをクリアしてHUDを隠すタイマー
         hudTimer = new Timer(2000, e -> hideHUD());
         hudTimer.setRepeats(false);
     }
 
-    /**
-     * メインウィンドウの移動に追従してHUDの位置を更新
-     */
     private void updateHUDPosition() {
         Point p = this.getLocation();
-        // メインウィンドウの左側にはみ出す形で配置
         hudWindow.setLocation(p.x - 110, p.y + (this.getHeight() / 2) - 70);
     }
 
-    /**
-     * キーボード入力をアプリ全体で監視する（数字・Enter・Esc）
-     */
     private void initKeyHandler() {
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
-            if (e.getID() == KeyEvent.KEY_PRESSED) {
-                handleKeyPress(e);
-            }
+            if (e.getID() == KeyEvent.KEY_PRESSED) handleKeyPress(e);
             return false;
         });
     }
 
-    /**
-     * キー入力のロジック処理
-     */
     private void handleKeyPress(KeyEvent e) {
-        char c = e.getKeyChar();
-        if (Character.isDigit(c)) {
-            // 数字キー：バッファに追加してHUDを表示
-            inputBuffer.append(c);
+        if (Character.isDigit(e.getKeyChar())) {
+            inputBuffer.append(e.getKeyChar());
             showHUD(inputBuffer.toString());
-        } else if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-            // Enter：確定実行
-            if (inputBuffer.length() > 0) {
-                try {
-                    int num = Integer.parseInt(inputBuffer.toString());
-                    if (num >= 1 && num <= TOTAL) {
-                        executeAction(num - 1);
-                    }
-                } catch (NumberFormatException ex) {
-                    // 数値変換失敗時は無視
-                }
-                hideHUD();
-            }
+        } else if (e.getKeyCode() == KeyEvent.VK_ENTER && inputBuffer.length() > 0) {
+            try {
+                int num = Integer.parseInt(inputBuffer.toString());
+                if (num >= 1 && num <= TOTAL) executeAction(num - 1);
+            } catch (NumberFormatException ex) {}
+            hideHUD();
         } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-            // Esc：入力をキャンセル
             hideHUD();
         }
     }
@@ -176,35 +216,7 @@ public class TextBoosterMain extends JFrame {
         hudTimer.stop();
     }
 
-    /**
-     * データのコピー＆貼り付けアクションを実行
-     */
-    private void executeAction(int index) {
-        // 視覚的フィードバック：ボタンをクリックした時と同じエフェクトを発生
-        buttons[index].requestFocusInWindow();
-        buttons[index].doClick(100);
-
-        // 自動貼り付け処理の実行
-        executor.copyAndPaste(clipItems[index].getContent());
-    }
-
-    /**
-     * 項目の編集ダイアログを表示
-     */
-    private void editItem(int index) {
-        EditDialog dialog = new EditDialog(this);
-        if (dialog.show(clipItems[index])) {
-            // 保存された場合、UIを更新してファイルへ書き出し
-            buttons[index].setClipTitle(clipItems[index].getTitle());
-            storage.save(clipItems);
-        }
-    }
-
     public static void main(String[] args) {
-        // GUIスレッドで実行
-        SwingUtilities.invokeLater(() -> {
-            TextBoosterMain app = new TextBoosterMain();
-            app.setVisible(true);
-        });
+        SwingUtilities.invokeLater(() -> new TextBoosterMain().setVisible(true));
     }
 }
