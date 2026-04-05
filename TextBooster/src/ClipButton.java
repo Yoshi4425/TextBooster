@@ -81,20 +81,34 @@ public class ClipButton extends JButton {
 
     @Override
     protected void paintComponent(Graphics g) {
-        super.paintComponent(g);
+        Graphics2D g2 = (Graphics2D) g.create();
+        // アンチエイリアス（文字を滑らかにする）
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // 1. 背景の塗りつぶし
+        g2.setColor(getBackground());
+        g2.fillRect(0, 0, getWidth(), getHeight());
+
+        // 2. 左上の数字（1〜30）の描画
+        // 番号は少し薄い色にするか、文字色(Foreground)を少し透明にして描くとオシャレです
+        g2.setColor(new Color(100, 100, 100, 255)); // グレーで少し透明
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 10)); // 小さめのフォント
+        // 左上に配置（余白 3px, 10px）
+        g2.drawString(String.valueOf(this.index), 3, 10); 
+
+        // 3. 中央のタイトルの描画
+        g2.setColor(getForeground());
+        g2.setFont(getFont());
         
-        // --- インデックス番号の固定描画（表示系統の分離） ---
-        Graphics2D g2d = (Graphics2D) g.create();
-        // アンチエイリアスを有効にして文字を綺麗に
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        
-        g2d.setFont(new Font("Arial", Font.BOLD, 10)); 
-        g2d.setColor(new Color(100, 100, 100)); // 少し薄めのグレー
-        
-        // 左上端（5, 12）付近に数字を固定
-        g2d.drawString(String.format("%02d", index), 5, 12);
-        
-        g2d.dispose();
+        if (this.originalTitle != null) {
+            FontMetrics fm = g2.getFontMetrics();
+            // 中央揃えの計算
+            int x = (getWidth() - fm.stringWidth(this.originalTitle)) / 2;
+            int y = (getHeight() + fm.getAscent()) / 2 - 2;
+            g2.drawString(this.originalTitle, x, y);
+        }
+
+        g2.dispose();
     }
 
     @Override
